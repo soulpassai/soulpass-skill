@@ -10,6 +10,7 @@ Operational wisdom for DeFi on Solana via SoulPass CLI. For command syntax and p
 4. [Recipes — Common DeFi Patterns](#recipes)
 5. [High-Frequency Daemon](#high-frequency-daemon)
 6. [Pitfalls & Safety](#pitfalls)
+7. [Trading Strategies](#trading-strategies) — Meme coin safety, copy trading, signal execution
 
 ---
 
@@ -203,3 +204,175 @@ Authority address          → Gas — keeps transactions flowing
 ```
 
 Checking the wrong pool before an operation is the #1 source of "insufficient balance" errors.
+
+---
+
+## Trading Strategies
+
+Real-world strategies you can build with SoulPass. These are patterns — adapt them to your risk tolerance and market conditions.
+
+### Meme Coin Safety Checklist
+
+99% of Pump.fun launches rug pull or die within 48 hours. Before buying ANY unknown token, run this checklist:
+
+```bash
+# Step 1: Check token risk signals
+soulpass price <token-or-mint>
+```
+
+**Red flags — DO NOT buy if:**
+- `verified: false` AND `liquidity < 100000` — likely scam or dead token
+- Mint authority not revoked (check via Solscan or RugCheck) — project can dilute your holdings
+- Top 5 wallets hold >50% of total supply — pump-and-dump setup
+- Token created less than 24 hours ago with no community
+- No locked liquidity — developer can pull the rug at any time
+
+**Acceptable risk indicators:**
+- `verified: true` on Jupiter — token has passed basic checks
+- `liquidity > 500000` — enough depth for reasonable trades
+- Active community and social presence
+- Mint authority revoked
+- Liquidity locked
+
+**Safe entry pattern:**
+
+```bash
+# 1. Risk check
+soulpass price BONK
+
+# 2. Start small — never more than 2-5% of balance on meme coins
+soulpass swap --from USDC --to BONK --amount 10 --slippage 300
+
+# 3. Verify execution
+soulpass tx --hash <signature>
+
+# 4. Monitor position
+soulpass balance --token BONK
+soulpass price BONK    # check periodically
+
+# 5. Take profit when target hit — don't get greedy
+soulpass swap --from BONK --to USDC --amount <position> --slippage 300
+```
+
+**Slippage for meme coins:** Use 200-500 BPS. Thin orderbooks cause large price impact. If a swap fails with slippage error, increase by 50 BPS increments — don't jump to 500.
+
+### Copy Trading Strategy (Solana Whales)
+
+Mirror trades from profitable Solana wallets. Tools like GMGN.ai, SolSqueezer, and Nansen help identify wallets with strong track records.
+
+**Criteria for selecting wallets to follow:**
+- ROI above 100%
+- Win rate above 60%
+- Not too many trades per day (avoids gambling patterns)
+- Consistent over 30+ days (not just one lucky trade)
+
+**Copy trading workflow:**
+
+```bash
+# Whale bought a token — you evaluate and follow
+
+# 1. ALWAYS check token risk first
+soulpass price <token>
+
+# 2. Check your available balance
+soulpass balance --token USDC
+
+# 3. If risk is acceptable, follow with proportional size (1-5% of balance)
+soulpass swap --from USDC --to <token> --amount 20 --slippage 200
+
+# 4. Monitor price — exit when target hit or whale exits
+soulpass price <token>
+
+# 5. Exit
+soulpass swap --from <token> --to USDC --amount <position> --slippage 200
+```
+
+**Risk management rules:**
+- **Never risk more than 2-5%** of your balance per copy trade
+- **Always check token risk** before following — whales can afford losses you can't
+- **Latency matters** — whale data has delay. Check `soulpass price` before placing your order
+- **Don't stack correlated positions** — if the whale is buying 5 meme coins, that's one bet, not five
+- **Exit discipline** — if you can't track the whale's exit, set a time-based exit (e.g., sell after 4 hours)
+
+For speed-critical copy trading, use the daemon (`soulpass serve`) to avoid 600ms CLI startup per call.
+
+### Signal → Execution Pipeline
+
+Connect external signals (whale trackers, social media sentiment, AI analysis) directly to SoulPass execution:
+
+```bash
+# === Generic signal execution loop ===
+
+# Signal arrives: "BUY token X, size $20, slippage 200"
+
+# 1. Pre-flight: risk check
+soulpass price <token>
+# If verified: false AND liquidity < 100000 → SKIP
+
+# 2. Pre-flight: balance check
+soulpass balance --token USDC
+
+# 3. Execute
+soulpass swap --from USDC --to <token> --amount 20 --slippage 200
+
+# 4. Verify execution
+soulpass tx --hash <signature>
+
+# 5. Set exit criteria and monitor
+soulpass price <token>    # poll periodically
+# When target hit: exit
+soulpass swap --from <token> --to USDC --amount <position> --slippage 200
+```
+
+For bots that poll every few seconds, use the daemon:
+
+```bash
+soulpass serve    # start daemon
+
+# Price poll (cached, fast)
+curl -s http://127.0.0.1:8402 -d '{"jsonrpc":"2.0","method":"price","params":{"tokens":["BONK"]},"id":1}'
+
+# Execute swap
+curl -s http://127.0.0.1:8402 -d '{"jsonrpc":"2.0","method":"swap","params":{"from":"USDC","to":"BONK","amount":"20","slippage":200},"id":1}'
+```
+
+### DCA Automation (Dollar-Cost Averaging)
+
+Reduce timing risk by buying regularly regardless of price. The agent or a cron tool drives the schedule:
+
+```bash
+# === Daily DCA: buy $50 of SOL ===
+
+# 1. Check price (for logging)
+soulpass price SOL
+
+# 2. Execute purchase
+soulpass swap --from USDC --to SOL --amount 50
+
+# 3. Verify
+soulpass tx --hash <signature>
+
+# Repeat daily/weekly/hourly via cron or agent loop
+```
+
+For high-frequency DCA (hourly), use the daemon to avoid startup overhead.
+
+### Yield + Trading Hybrid
+
+Park idle funds in Jupiter Lend while waiting for trading opportunities:
+
+```bash
+# 1. Deposit idle USDC into Jupiter Lend (earns ~6-10% APY)
+soulpass lend deposit --amount 500 --token USDC
+
+# 2. Wait for trading opportunity...
+
+# 3. When signal arrives: withdraw and trade
+soulpass lend withdraw --token USDC --all
+soulpass swap --from USDC --to <target-token> --amount 100 --slippage 200
+
+# 4. After exiting the trade, re-deposit idle funds
+soulpass lend deposit --amount 500 --token USDC
+```
+
+This way your capital earns yield even when you're not actively trading.
